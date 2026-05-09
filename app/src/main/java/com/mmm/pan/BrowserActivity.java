@@ -27,4 +27,14 @@ public class BrowserActivity extends Activity {
         String url=getIntent().getStringExtra("url"); if(url==null) url="https://pan.baidu.com"; web.loadUrl(url);
     }
     @Override public void onBackPressed(){ if(web.canGoBack()) web.goBack(); else super.onBackPressed(); }
+
+    @Override protected void onDestroy(){
+        if(web!=null){
+            web.stopLoading();
+            web.removeJavascriptInterface("MMM_NATIVE");
+            web.destroy();
+            web=null;
+        }
+        super.onDestroy();
+    }
 }
