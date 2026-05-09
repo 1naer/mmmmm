@@ -26,6 +26,7 @@ public class ScriptInjector {
         beginNavigation(navigationId);
         String safeUrl = url == null ? "" : url;
         injectAssetOnce(web,"scripts/gm_shim.js");
+        injectAssetOnce(web,"scripts/linkswift.js");
         injectAssetOnce(web,"scripts/generic_link_capture.js");
         // TODO: 根据域名注入专用脚本：baidu、aliyun、quark、xunlei、tianyi...
         if(safeUrl.contains("pan.baidu.com")||safeUrl.contains("yun.baidu.com")) injectAssetOnce(web,"scripts/baidu_stub.js");
