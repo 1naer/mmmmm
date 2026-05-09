@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: android-build-${{ github.ref }}
@@ -45,9 +45,31 @@ jobs:
       - name: Build debug APK
         run: ./gradlew clean assembleDebug --stacktrace
 
-      - name: Upload debug APK
+      - name: Prepare APK
+        run: |
+          mkdir -p release
+          cp app/build/outputs/apk/debug/*.apk release/mmm-debug.apk
+
+      - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: mmm-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: release/mmm-debug.apk
           if-no-files-found: error
+
+      - name: Publish latest debug APK release
+        if: github.event_name != 'pull_request'
+        uses: ncipollo/release-action@v1
+        with:
+          tag: debug-latest
+          name: Latest Debug APK
+          body: |
+            Automatically generated debug APK from the latest main branch build.
+
+            Commit: ${{ github.sha }}
+          artifacts: release/mmm-debug.apk
+          allowUpdates: true
+          replacesArtifacts: true
+          removeArtifacts: true
+          prerelease: true
+          token: ${{ secrets.GITHUB_TOKEN }}
