@@ -4,8 +4,31 @@ import org.json.*;
 import java.io.*;
 import java.net.*;
 import java.util.*;
+import java.util.concurrent.*;
 
 public class NativeHttp {
+    private static final ExecutorService EXECUTOR = Executors.newCachedThreadPool();
+
+    public interface Callback {
+        void onComplete(String result);
+    }
+
+    public static void asyncRequest(final String json, final Callback callback){
+        EXECUTOR.execute(new Runnable(){
+            @Override public void run(){
+                String result;
+                try{
+                    result = syncRequest(json);
+                }catch(Exception e){
+                    result = errorResponse(e.toString());
+                }
+                if(callback != null){
+                    callback.onComplete(result);
+                }
+            }
+        });
+    }
+
     public static String syncRequest(String json){
         HttpURLConnection c = null;
         try{
