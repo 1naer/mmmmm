@@ -9,6 +9,7 @@ import android.graphics.Color;
 
 public class MainActivity extends Activity {
     EditText input;
+
     @Override public void onCreate(Bundle b){ super.onCreate(b);
         LinearLayout root=new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(32,48,32,32);
         TextView title=new TextView(this); title.setText("mmm"); title.setTextSize(30); title.setTextColor(Color.rgb(40,35,50)); title.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -18,9 +19,21 @@ public class MainActivity extends Activity {
         Button downloads=new Button(this); downloads.setText("下载任务");
         root.addView(title); root.addView(sub); root.addView(input, new LinearLayout.LayoutParams(-1,-2)); root.addView(open); root.addView(downloads);
         setContentView(root);
+
         String shared = readSharedText(); if(shared!=null) input.setText(shared);
-        open.setOnClickListener(v -> { String url=input.getText().toString().trim(); if(!url.startsWith("http")) url="https://"+url; BrowserActivity.open(this,url); });
+        open.setOnClickListener(v -> {
+            String url = input.getText().toString().trim();
+            if (url.length() == 0) {
+                Toast.makeText(this, "请先粘贴网盘分享链接", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (!url.matches("(?i)^https?://.*")) {
+                url = "https://" + url;
+            }
+            BrowserActivity.open(this, url);
+        });
         downloads.setOnClickListener(v -> startActivity(new Intent(this, DownloadActivity.class)));
     }
+
     private String readSharedText(){ Intent i=getIntent(); if(Intent.ACTION_SEND.equals(i.getAction())) return i.getStringExtra(Intent.EXTRA_TEXT); return null; }
 }
