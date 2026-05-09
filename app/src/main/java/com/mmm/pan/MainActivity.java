@@ -22,15 +22,14 @@ public class MainActivity extends Activity {
 
         String shared = readSharedText(); if(shared!=null) input.setText(shared);
         open.setOnClickListener(v -> {
-            String url = input.getText().toString().trim();
-            if (url.length() == 0) {
-                Toast.makeText(this, "请先粘贴网盘分享链接", Toast.LENGTH_SHORT).show();
+            ShareLinkParser.Result result = ShareLinkParser.parse(input.getText().toString());
+            if (!result.ok) {
+                Toast.makeText(this, result.message, Toast.LENGTH_SHORT).show();
                 return;
             }
-            if (!url.matches("(?i)^https?://.*")) {
-                url = "https://" + url;
-            }
-            BrowserActivity.open(this, url);
+            input.setText(result.url);
+            Toast.makeText(this, result.message, Toast.LENGTH_SHORT).show();
+            BrowserActivity.open(this, result.url);
         });
         downloads.setOnClickListener(v -> startActivity(new Intent(this, DownloadActivity.class)));
     }
