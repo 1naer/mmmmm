@@ -20,6 +20,20 @@ public class MmmBridge {
     @JavascriptInterface public void saveValue(String k,String v){ sp.edit().putString(k,v).apply(); }
     @JavascriptInterface public String getValue(String k){ return sp.getString(k,""); }
     @JavascriptInterface public String gmXmlHttpRequest(String json){ return NativeHttp.syncRequest(json); }
+    @JavascriptInterface public void gmXmlHttpRequestAsync(final String callbackId, final String json){
+        NativeHttp.asyncRequest(json, new NativeHttp.Callback(){
+            @Override public void onComplete(final String result){
+                activity.runOnUiThread(new Runnable(){
+                    @Override public void run(){
+                        String js = "window.__mmmGMXmlHttpRequestCallback&&window.__mmmGMXmlHttpRequestCallback("
+                                + JSONObject.quote(callbackId == null ? "" : callbackId) + ","
+                                + JSONObject.quote(result == null ? "{}" : result) + " );";
+                        web.evaluateJavascript(js, null);
+                    }
+                });
+            }
+        });
+    }
     private void handleDownload(JSONObject o) throws Exception{
         JSONArray arr = null; JSONObject p=o.optJSONObject("payload"); if(p!=null) arr=p.optJSONArray("files");
         if(arr==null) arr=o.optJSONArray("data");
