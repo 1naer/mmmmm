@@ -29,6 +29,7 @@ public class ScriptInjector {
         injectAssetOnce(web,"scripts/generic_link_capture.js");
         // TODO: 根据域名注入专用脚本：baidu、aliyun、quark、xunlei、tianyi...
         if(safeUrl.contains("pan.baidu.com")||safeUrl.contains("yun.baidu.com")) injectAssetOnce(web,"scripts/baidu_stub.js");
+        if(safeUrl.contains("quark.cn")||safeUrl.contains("uc.cn")) injectAssetOnce(web,"scripts/quark_stub.js");
     }
 
     private void injectAssetOnce(WebView web,String path){
