@@ -1,86 +1,98 @@
+/**
+ * Quark Deep Interceptor for mmmmm
+ * 深度拦截并提取夸克网盘的真实下载链接，彻底解决“点击后无事发生”的问题。
+ */
 (function() {
-    if (window._quarkStubInjected) return;
-    window._quarkStubInjected = true;
-    console.log('[Quark Stub] Injected - Real extraction logic');
+    console.log("[MMM-Quark] 深度拦截脚本已注入，等待捕获下载直链...");
 
-    const downloadApi = "https://drive-pc.quark.cn/1/clouddrive/file/download?entry=ft&fr=pc&pr=ucpro";
-    const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/3.20.0 Chrome/112.0.5615.165 Electron/24.1.3.8 Safari/537.36 Channel/pckk_other_ch";
+    function triggerNativeDownload(url, filename) {
+        console.log("[MMM-Quark] 成功捕获直链:", url, "文件名:", filename);
+        if (window.MMM_NATIVE && window.MMM_NATIVE.startDownload) {
+            window.MMM_NATIVE.startDownload(url, filename || "quark_file");
+            // Toast 提示让用户知道拦截成功
+            var toast = document.createElement("div");
+            toast.innerText = "成功拦截下载: " + (filename || "");
+            toast.style.cssText = "position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.8);color:#fff;padding:10px 20px;border-radius:20px;z-index:999999;";
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        } else {
+            console.error("[MMM-Quark] MMM_NATIVE 未定义!");
+        }
+    }
 
-    // 辅助函数：拦截原生API响应
-    const originalOpen = XMLHttpRequest.prototype.open;
-    const originalSend = XMLHttpRequest.prototype.send;
+    // 1. 拦截 XMLHttpRequest (网盘常用的异步请求方式)
+    const originalXhrOpen = XMLHttpRequest.prototype.open;
+    const originalXhrSend = XMLHttpRequest.prototype.send;
+
     XMLHttpRequest.prototype.open = function(method, url) {
-        this._url = url;
-        return originalOpen.apply(this, arguments);
+        this._requestUrl = url;
+        return originalXhrOpen.apply(this, arguments);
     };
+
     XMLHttpRequest.prototype.send = function() {
         this.addEventListener('load', function() {
             try {
-                // 尝试抓取文件列表
-                if (this._url.indexOf('clouddrive/share/sharePageInfo') !== -1 || this._url.indexOf('clouddrive/file/sort') !== -1) {
-                    let res = JSON.parse(this.responseText);
-                    if (res && res.data && res.data.list) {
-                        window._quarkCurrentFiles = res.data.list;
+                // 夸克网盘获取下载链接的典型 API 路径
+                if (this._requestUrl && this._requestUrl.includes('/clouddrive/file/download')) {
+                    const response = JSON.parse(this.responseText);
+                    console.log("[MMM-Quark] XHR 拦截到 download API 响应:", response);
+                    
+                    if (response && response.data && response.data.length > 0) {
+                        const fileData = response.data[0];
+                        const downloadUrl = fileData.download_url;
+                        const filename = fileData.file_name;
+                        
+                        if (downloadUrl) {
+                            triggerNativeDownload(downloadUrl, filename);
+                        }
                     }
                 }
-            } catch(e) {}
+            } catch (e) {
+                // Ignore parse errors for non-JSON responses
+            }
         });
-        return originalSend.apply(this, arguments);
+        return originalXhrSend.apply(this, arguments);
     };
 
-    // 拦截点击事件
+    // 2. 拦截 Fetch API (现代前端常用的请求方式)
+    const originalFetch = window.fetch;
+    window.fetch = async function(...args) {
+        const response = await originalFetch.apply(this, args);
+        const url = args[0];
+        
+        try {
+            if (typeof url === 'string' && url.includes('/clouddrive/file/download')) {
+                const clonedResponse = response.clone();
+                const data = await clonedResponse.json();
+                console.log("[MMM-Quark] Fetch 拦截到 download API 响应:", data);
+                
+                if (data && data.data && data.data.length > 0) {
+                    const fileData = data.data[0];
+                    const downloadUrl = fileData.download_url;
+                    const filename = fileData.file_name;
+                    
+                    if (downloadUrl) {
+                        triggerNativeDownload(downloadUrl, filename);
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("[MMM-Quark] Fetch 拦截解析失败:", e);
+        }
+        return response;
+    };
+
+    // 3. 兜底方案：拦截 A 标签的直接点击
     document.addEventListener('click', function(e) {
         let target = e.target;
-        while (target && target !== document) {
-            let text = (target.innerText || '').trim();
-            let className = (target.className || '').toLowerCase();
-            
-            if (text === '下载' || text.includes('保存到网盘') || className.includes('download') || className.includes('pl-button-save')) {
-                console.log('[Quark Stub] Intercepted button click: ', text);
-                
-                // 尝试提取 fid 和 pwd_id 并请求真实链接
-                let pwd_id = location.pathname.match(/^\/(?:s|share)\/([a-zA-Z0-9]+)/);
-                pwd_id = pwd_id ? pwd_id[1] : '';
-
-                // 如果已经有缓存的文件列表
-                if (window._quarkCurrentFiles && window._quarkCurrentFiles.length > 0) {
-                    let fids = window._quarkCurrentFiles.map(f => f.fid);
-                    let fids_token = window._quarkCurrentFiles.map(f => f.share_fid_token);
-                    let stoken = window._quarkCurrentFiles[0].stoken || '';
-                    
-                    // 发起获取直链的请求
-                    fetch(downloadApi, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'User-Agent': userAgent
-                        },
-                        body: JSON.stringify({
-                            fids: fids,
-                            fids_token: fids_token,
-                            pwd_id: pwd_id,
-                            stoken: stoken
-                        })
-                    }).then(r => r.json()).then(res => {
-                        if (res.code === 0 && res.data) {
-                            res.data.forEach(file => {
-                                if (file.download_url && window.MMM_NATIVE) {
-                                    console.log('[Quark Stub] Extracted real link!', file);
-                                    window.MMM_NATIVE.startDownload(file.download_url, file.file_name, file.size || 0, document.cookie);
-                                }
-                            });
-                            alert('已提取并开始下载 ' + res.data.length + ' 个文件！');
-                        } else {
-                            alert('提取直链失败，可能需要登录：' + (res.message || res.code));
-                        }
-                    }).catch(err => console.error('[Quark Stub]', err));
-
-                    e.preventDefault();
-                    e.stopPropagation();
-                }
-                break;
-            }
-            target = target.parentNode;
+        while (target && target.tagName !== 'A') {
+            target = target.parentElement;
+        }
+        if (target && target.href && target.href.includes('drive-pc.quark.cn/1/clouddrive/file/download')) {
+            e.preventDefault();
+            e.stopPropagation();
+            triggerNativeDownload(target.href, target.download || target.innerText);
         }
     }, true);
+
 })();
