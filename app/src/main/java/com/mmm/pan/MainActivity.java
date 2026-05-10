@@ -13,11 +13,9 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
 import android.view.Gravity;
-import android.view.View;
 import android.view.ViewGroup;
+import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
-import android.webkit.WebResourceRequest;
-import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -91,12 +89,28 @@ public class MainActivity extends Activity {
         
         Button downloadsBtn = createSecondaryButton("下载管理中心");
         LinearLayout.LayoutParams btnParams2 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 140);
+        btnParams2.setMargins(0, 0, 0, 30);
+
+        // -- 新增网盘授权按钮行 --
+        LinearLayout authRow = new LinearLayout(this);
+        authRow.setOrientation(LinearLayout.HORIZONTAL);
+        Button authQuarkBtn = createSecondaryButton("登录夸克");
+        Button authBaiduBtn = createSecondaryButton("登录百度");
+        
+        LinearLayout.LayoutParams authBtnParams1 = new LinearLayout.LayoutParams(0, 120, 1);
+        authBtnParams1.setMargins(0, 0, 10, 0);
+        LinearLayout.LayoutParams authBtnParams2 = new LinearLayout.LayoutParams(0, 120, 1);
+        authBtnParams2.setMargins(10, 0, 0, 0);
+
+        authRow.addView(authQuarkBtn, authBtnParams1);
+        authRow.addView(authBaiduBtn, authBtnParams2);
 
         root.addView(title);
         root.addView(sub, subParams);
         root.addView(card, cardParams);
         root.addView(openBtn, btnParams);
         root.addView(downloadsBtn, btnParams2);
+        root.addView(authRow, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         setContentView(scrollView);
 
@@ -114,12 +128,23 @@ public class MainActivity extends Activity {
                 Toast.makeText(this, result.message, Toast.LENGTH_SHORT).show();
                 return;
             }
-            // 开始无感解析
-            startSilentParsing(result.url);
+            startSilentParsing(result.url, result.provider);
         });
 
         downloadsBtn.setOnClickListener(v -> startActivity(new Intent(this, DownloadActivity.class)));
         
+        authQuarkBtn.setOnClickListener(v -> {
+            Intent intent = new Intent(this, LoginActivity.class);
+            intent.putExtra("DRIVE_TYPE", "QUARK");
+            startActivity(intent);
+        });
+
+        authBaiduBtn.setOnClickListener(v -> {
+            Intent intent = new Intent(this, LoginActivity.class);
+            intent.putExtra("DRIVE_TYPE", "BAIDU");
+            startActivity(intent);
+        });
+
         setupHeadlessWebView();
     }
 
@@ -129,7 +154,6 @@ public class MainActivity extends Activity {
         WebSettings settings = headlessWebView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
-        // 伪装成PC浏览器以获取更好的API响应
         settings.setUserAgentString("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36");
         
         headlessWebView.addJavascriptInterface(new Object() {
@@ -161,18 +185,30 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void startSilentParsing(String url) {
+    private void startSilentParsing(String url, String provider) {
         showLoadingDialog();
-        // 重置WebView并加载
         headlessWebView.clearHistory();
         headlessWebView.clearCache(true);
+
+        // 核心：将保存的凭证 Cookie 注入 WebView
+        String savedCookie = "";
+        if ("夸克网盘".equals(provider)) {
+            savedCookie = getSharedPreferences("DriveAuth", MODE_PRIVATE).getString("QUARK_COOKIE", "");
+        } else if ("百度网盘".equals(provider)) {
+            savedCookie = getSharedPreferences("DriveAuth", MODE_PRIVATE).getString("BAIDU_COOKIE", "");
+        }
+
+        if (!TextUtils.isEmpty(savedCookie)) {
+            CookieManager.getInstance().setCookie(url, savedCookie);
+            CookieManager.getInstance().flush();
+        }
+
         headlessWebView.loadUrl(url);
         
-        // 设置超时
         mainHandler.postDelayed(() -> {
             if (loadingDialog != null && loadingDialog.isShowing()) {
                 hideLoadingDialog();
-                Toast.makeText(this, "解析超时，请检查网络或分享链接是否失效", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "解析超时，可能是未登录导致的限制，请先登录网盘账号", Toast.LENGTH_LONG).show();
             }
         }, 15000);
     }
@@ -184,15 +220,19 @@ public class MainActivity extends Activity {
         builder.setTitle("🎉 成功提取文件");
         builder.setMessage("文件名: " + filename + "\n\n是否立即创建下载任务？");
         builder.setPositiveButton("立即下载", (dialog, which) -> {
-            String id = UUID.randomName().toString(); // 注意修复此处的 UUID.randomUUID().toString() (后续)
             DownloadTask task = new DownloadTask();
             task.id = UUID.randomUUID().toString();
             task.url = directUrl;
             task.name = filename;
             task.status = DownloadTask.STATUS_PAUSED;
+            
+            // 同样将全局 Cookie 保存到下载头，供 Aria 引擎使用，突破限速
+            String headers = String.format("{\"Cookie\":\"%s\"}", CookieManager.getInstance().getCookie(directUrl));
+            task.headersJson = headers;
+
             DownloadRepository.update(this, task);
             DownloadService.startTask(this, task.id);
-            Toast.makeText(this, "已加入下载队列", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "已加入极速下载队列", Toast.LENGTH_SHORT).show();
         });
         builder.setNegativeButton("取消", null);
         builder.show();
@@ -215,7 +255,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    // --- UI Helpers ---
     private GradientDrawable createCardBackground() {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(Color.WHITE);
