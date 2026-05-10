@@ -1,6 +1,5 @@
 package com.mmm.pan;
 
-import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
@@ -15,10 +14,6 @@ import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
-import android.webkit.JavascriptInterface;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -26,13 +21,11 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.io.InputStream;
 import java.util.UUID;
 
 public class MainActivity extends Activity {
     private EditText input;
     private Button openBtn;
-    private WebView headlessWebView;
     private Handler mainHandler = new Handler(Looper.getMainLooper());
     private AlertDialog loadingDialog;
 
@@ -57,7 +50,7 @@ public class MainActivity extends Activity {
         title.getPaint().setFakeBoldText(true);
 
         TextView sub = new TextView(this);
-        sub.setText("全网盘无感解析与极速下载");
+        sub.setText("全网盘原生直链解析与极速下载");
         sub.setTextSize(15);
         sub.setTextColor(Color.parseColor("#7F8C8D"));
         sub.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -98,7 +91,6 @@ public class MainActivity extends Activity {
         root.addView(openBtn, btnParams);
         root.addView(downloadsBtn, btnParams2);
 
-        // 动态生成所有网盘的登录授权按钮
         String[] drives = {"百度网盘", "夸克网盘", "阿里云盘", "天翼云盘", "迅雷云盘", "115网盘", "123云盘"};
         LinearLayout currentAuthRow = null;
         for (int i = 0; i < drives.length; i++) {
@@ -137,71 +129,25 @@ public class MainActivity extends Activity {
                 Toast.makeText(this, result.message, Toast.LENGTH_SHORT).show();
                 return;
             }
-            startSilentParsing(result.url, result.provider);
+            
+            showLoadingDialog();
+            ShareLinkParser.fetchDirectLinkAsync(this, result, new ShareLinkParser.Callback() {
+                @Override
+                public void onSuccess(String directUrl, String filename) {
+                    mainHandler.post(() -> onParsedSuccessfully(directUrl, filename));
+                }
+
+                @Override
+                public void onFail(String reason) {
+                    mainHandler.post(() -> {
+                        hideLoadingDialog();
+                        Toast.makeText(MainActivity.this, reason, Toast.LENGTH_LONG).show();
+                    });
+                }
+            });
         });
 
         downloadsBtn.setOnClickListener(v -> startActivity(new Intent(this, DownloadActivity.class)));
-        setupHeadlessWebView();
-    }
-
-    @SuppressLint("SetJavaScriptEnabled")
-    private void setupHeadlessWebView() {
-        headlessWebView = new WebView(this);
-        WebSettings settings = headlessWebView.getSettings();
-        settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);
-        settings.setUserAgentString("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36");
-        
-        headlessWebView.addJavascriptInterface(new Object() {
-            @JavascriptInterface
-            public void startDownload(String url, String filename) {
-                mainHandler.post(() -> onParsedSuccessfully(url, filename));
-            }
-        }, "MMM_NATIVE");
-
-        headlessWebView.setWebViewClient(new WebViewClient() {
-            @Override
-            public void onPageFinished(WebView view, String url) {
-                super.onPageFinished(view, url);
-                injectStubScript();
-            }
-        });
-    }
-
-    private void injectStubScript() {
-        try {
-            InputStream is = getAssets().open("scripts/quark_stub.js");
-            byte[] buffer = new byte[is.available()];
-            is.read(buffer);
-            is.close();
-            String script = new String(buffer, "UTF-8");
-            headlessWebView.evaluateJavascript(script, null);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    private void startSilentParsing(String url, String provider) {
-        showLoadingDialog();
-        headlessWebView.clearHistory();
-        headlessWebView.clearCache(true);
-
-        // 全网盘全局 Cookie 注入
-        String savedCookie = getSharedPreferences("DriveAuth", MODE_PRIVATE).getString(provider + "_COOKIE", "");
-
-        if (!TextUtils.isEmpty(savedCookie)) {
-            CookieManager.getInstance().setCookie(url, savedCookie);
-            CookieManager.getInstance().flush();
-        }
-
-        headlessWebView.loadUrl(url);
-        
-        mainHandler.postDelayed(() -> {
-            if (loadingDialog != null && loadingDialog.isShowing()) {
-                hideLoadingDialog();
-                Toast.makeText(this, "解析超时，可能是未登录导致的限制，请先在下方点击【授权】登录对应网盘", Toast.LENGTH_LONG).show();
-            }
-        }, 15000);
     }
 
     private void onParsedSuccessfully(String directUrl, String filename) {
@@ -232,7 +178,7 @@ public class MainActivity extends Activity {
     private void showLoadingDialog() {
         if (loadingDialog == null) {
             AlertDialog.Builder builder = new AlertDialog.Builder(this);
-            builder.setTitle("正在进行无感解析");
+            builder.setTitle("正在进行原生解析");
             builder.setMessage("引擎正在后台提取真实直链，请稍候...");
             builder.setCancelable(false);
             loadingDialog = builder.create();
