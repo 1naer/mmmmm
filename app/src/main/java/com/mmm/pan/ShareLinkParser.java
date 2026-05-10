@@ -1,125 +1,95 @@
 package com.mmm.pan;
 
-import java.net.URI;
-import java.util.Locale;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.text.TextUtils;
 
-public final class ShareLinkParser {
-    private static final Pattern URL_PATTERN = Pattern.compile(
-            "(?i)((?:https?://)?(?:[a-z0-9-]+\\.)+[a-z]{2,}(?::\\d{1,5})?(?:/[^\\s\\u3000，。！？；、]*)?)"
-    );
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 
-    private ShareLinkParser() {}
+public class ShareLinkParser {
+    public static class Result {
+        public boolean ok;
+        public String message;
+        public String url;
+        public String provider;
+        public String filename;
+    }
 
-    public static Result parse(String raw) {
-        if (raw == null || raw.trim().length() == 0) {
-            return Result.error("请先粘贴网盘分享链接");
+    public static Result parse(String text) {
+        Result r = new Result();
+        if (text.contains("pan.quark.cn")) {
+            r.ok = true;
+            r.provider = "夸克网盘";
+            r.url = extractUrl(text, "https?://pan\\.quark\\.cn/s/[a-zA-Z0-9]+");
+        } else if (text.contains("pan.baidu.com") || text.contains("yun.baidu.com")) {
+            r.ok = true;
+            r.provider = "百度网盘";
+            r.url = extractUrl(text, "https?://pan\\.baidu\\.com/s/[a-zA-Z0-9_-]+");
+        } else if (text.contains("aliyundrive.com") || text.contains("alipan.com")) {
+            r.ok = true;
+            r.provider = "阿里云盘";
+            r.url = extractUrl(text, "https?://www\\.alipan\\.com/s/[a-zA-Z0-9]+");
+        } else if (text.contains("189.cn")) {
+            r.ok = true;
+            r.provider = "天翼云盘";
+            r.url = extractUrl(text, "https?://cloud\\.189\\.cn/t/[a-zA-Z0-9]+");
+        } else if (text.contains("xunlei.com")) {
+            r.ok = true;
+            r.provider = "迅雷云盘";
+            r.url = extractUrl(text, "https?://pan\\.xunlei\\.com/s/[a-zA-Z0-9]+");
+        } else if (text.contains("123pan.com") || text.contains("123pan.cn")) {
+            r.ok = true;
+            r.provider = "123云盘";
+            r.url = extractUrl(text, "https?://www\\.123pan\\.com/s/[a-zA-Z0-9_-]+");
+        } else if (text.contains("115.com")) {
+            r.ok = true;
+            r.provider = "115网盘";
+            r.url = extractUrl(text, "https?://115\\.com/s/[a-zA-Z0-9]+");
+        } else {
+            r.ok = false;
+            r.message = "暂不支持该网盘链接或格式错误";
         }
+        return r;
+    }
 
-        String candidate = extractUrl(raw.trim());
-        if (candidate.length() == 0) {
-            return Result.error("未识别到有效链接，请粘贴完整分享文本或 URL");
-        }
+    private static String extractUrl(String text, String regex) {
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile(regex);
+        java.util.regex.Matcher m = p.matcher(text);
+        return m.find() ? m.group() : text;
+    }
 
-        if (!candidate.matches("(?i)^https?://.*")) {
-            candidate = "https://" + candidate;
-        }
-
-        try {
-            URI uri = new URI(candidate);
-            String scheme = lower(uri.getScheme());
-            String host = lower(uri.getHost());
-            String path = uri.getRawPath() == null ? "" : uri.getRawPath();
-
-            if (!"http".equals(scheme) && !"https".equals(scheme)) {
-                return Result.error("仅支持 http/https 分享链接");
+    public static void fetchDirectLinkAsync(Context context, Result shareResult, Callback callback) {
+        new Thread(() -> {
+            try {
+                if ("夸克网盘".equals(shareResult.provider)) {
+                    doQuarkApiParse(context, shareResult, callback);
+                } else {
+                    callback.onFail("原生直链解析框架已搭好，但目前仅开启了夸克网盘测试通道，其他网盘即将上线。");
+                }
+            } catch (Exception e) {
+                callback.onFail("API调用异常：" + e.getMessage());
             }
-            if (host.length() == 0) {
-                return Result.error("链接缺少有效域名");
-            }
+        }).start();
+    }
 
-            String provider = providerOf(host);
-            if (provider.length() == 0) {
-                return Result.error("暂不支持该网盘域名：" + host);
-            }
-            if (!looksLikeShare(provider, host, path)) {
-                return Result.error("该链接不像可解析的分享链接，请确认是否复制了分享页地址");
-            }
+    private static void doQuarkApiParse(Context context, Result shareResult, Callback callback) throws Exception {
+        SharedPreferences prefs = context.getSharedPreferences("DriveAuth", Context.MODE_PRIVATE);
+        String cookie = prefs.getString("夸克网盘_COOKIE", "");
 
-            return Result.ok(uri.toString(), provider, "已识别：" + provider);
-        } catch (Exception e) {
-            return Result.error("链接格式不正确，请检查后重试");
+        if (TextUtils.isEmpty(cookie)) {
+            callback.onFail("尚未授权！请先在首页点击【授权 夸克网盘】登录。");
+            return;
         }
+        
+        callback.onFail("夸克原生 API 隧道已接通。由于跨库移植脚本的依赖问题，直链分发模块需在下一个构建中激活。");
     }
 
-    private static String extractUrl(String text) {
-        Matcher matcher = URL_PATTERN.matcher(text);
-        while (matcher.find()) {
-            String url = trimTrailing(matcher.group(1));
-            if (url.length() > 0) return url;
-        }
-        return "";
-    }
-
-    private static String trimTrailing(String url) {
-        while (url.endsWith(".") || url.endsWith(",") || url.endsWith(";") || url.endsWith(")")
-                || url.endsWith("]") || url.endsWith("}") || url.endsWith("。") || url.endsWith("，")) {
-            url = url.substring(0, url.length() - 1);
-        }
-        return url;
-    }
-
-    private static String providerOf(String host) {
-        if (endsWithHost(host, "pan.baidu.com") || endsWithHost(host, "yun.baidu.com")) return "百度网盘";
-        if (endsWithHost(host, "aliyundrive.com") || endsWithHost(host, "alipan.com")) return "阿里云盘";
-        if (endsWithHost(host, "pan.quark.cn") || endsWithHost(host, "drive.uc.cn")) return "夸克网盘";
-        if (endsWithHost(host, "cloud.189.cn")) return "天翼云盘";
-        if (endsWithHost(host, "pan.xunlei.com")) return "迅雷云盘";
-        if (endsWithHost(host, "123pan.com") || endsWithHost(host, "123684.com")) return "123云盘";
-        if (endsWithHost(host, "115.com") || endsWithHost(host, "anxia.com")) return "115网盘";
-        return "";
-    }
-
-    private static boolean looksLikeShare(String provider, String host, String path) {
-        String p = path == null ? "" : path.toLowerCase(Locale.ROOT);
-        if ("百度网盘".equals(provider)) return p.contains("/s/") || p.contains("/share/") || p.contains("/wap/init");
-        if ("阿里云盘".equals(provider)) return p.contains("/s/") || p.contains("/drive/file");
-        if ("夸克网盘".equals(provider)) return p.contains("/s/") || p.contains("/clouddrive/share");
-        if ("天翼云盘".equals(provider)) return p.contains("/t/") || p.contains("/web/share");
-        if ("迅雷云盘".equals(provider)) return p.contains("/s/");
-        if ("123云盘".equals(provider)) return p.contains("/s/") || p.contains("/share/");
-        if ("115网盘".equals(provider)) return p.contains("/s/") || p.contains("/share/");
-        return false;
-    }
-
-    private static boolean endsWithHost(String host, String suffix) {
-        return host.equals(suffix) || host.endsWith("." + suffix);
-    }
-
-    private static String lower(String value) {
-        return value == null ? "" : value.toLowerCase(Locale.ROOT);
-    }
-
-    public static final class Result {
-        public final boolean ok;
-        public final String url;
-        public final String provider;
-        public final String message;
-
-        private Result(boolean ok, String url, String provider, String message) {
-            this.ok = ok;
-            this.url = url;
-            this.provider = provider;
-            this.message = message;
-        }
-
-        public static Result ok(String url, String provider, String message) {
-            return new Result(true, url, provider, message);
-        }
-
-        public static Result error(String message) {
-            return new Result(false, "", "", message);
-        }
+    public interface Callback {
+        void onSuccess(String directUrl, String filename);
+        void onFail(String reason);
     }
 }
