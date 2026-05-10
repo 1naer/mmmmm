@@ -3,7 +3,6 @@ package com.mmm.pan;
 import android.app.Activity;
 import android.graphics.Color;
 import android.os.Bundle;
-import android.view.Gravity;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
@@ -32,7 +31,6 @@ public class LoginActivity extends Activity {
         settings.setDomStorageEnabled(true);
         settings.setUserAgentString("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36");
         
-        // 监控网页加载完成，如果是夸克/百度网盘的首页，说明登录可能成功，尝试抓取 Cookie
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
@@ -50,10 +48,20 @@ public class LoginActivity extends Activity {
     }
 
     private void loadDriveLogin() {
-        if ("QUARK".equals(targetDrive)) {
+        if ("夸克网盘".equals(targetDrive)) {
             webView.loadUrl("https://pan.quark.cn/");
-        } else if ("BAIDU".equals(targetDrive)) {
+        } else if ("百度网盘".equals(targetDrive)) {
             webView.loadUrl("https://pan.baidu.com/disk/main");
+        } else if ("阿里云盘".equals(targetDrive)) {
+            webView.loadUrl("https://www.aliyundrive.com/drive/");
+        } else if ("天翼云盘".equals(targetDrive)) {
+            webView.loadUrl("https://cloud.189.cn/web/login.html");
+        } else if ("迅雷云盘".equals(targetDrive)) {
+            webView.loadUrl("https://pan.xunlei.com/");
+        } else if ("123云盘".equals(targetDrive)) {
+            webView.loadUrl("https://www.123pan.com/");
+        } else if ("115网盘".equals(targetDrive)) {
+            webView.loadUrl("https://115.com/");
         } else {
             Toast.makeText(this, "未知的网盘类型", Toast.LENGTH_SHORT).show();
             finish();
@@ -62,19 +70,24 @@ public class LoginActivity extends Activity {
 
     private void checkAndSaveCookie(String currentUrl) {
         String cookie = CookieManager.getInstance().getCookie(currentUrl);
-        if (cookie != null && cookie.contains("ptoken=")) { // 夸克常用凭证
-            saveCookieAndExit("QUARK", cookie);
-        } else if (cookie != null && cookie.contains("BDUSS=")) { // 百度常用凭证
-            saveCookieAndExit("BAIDU", cookie);
-        }
-    }
+        if (cookie == null || cookie.isEmpty()) return;
 
-    private void saveCookieAndExit(String driveType, String cookieStr) {
-        getSharedPreferences("DriveAuth", MODE_PRIVATE)
-                .edit()
-                .putString(driveType + "_COOKIE", cookieStr)
-                .apply();
-        Toast.makeText(this, "✅ 登录凭证获取成功，已开启极速与大文件权限", Toast.LENGTH_LONG).show();
-        finish();
+        boolean isLogged = false;
+        if ("夸克网盘".equals(targetDrive) && cookie.contains("ptoken=")) isLogged = true;
+        else if ("百度网盘".equals(targetDrive) && cookie.contains("BDUSS=")) isLogged = true;
+        else if ("阿里云盘".equals(targetDrive) && cookie.contains("alipan.com")) isLogged = true;
+        else if ("天翼云盘".equals(targetDrive) && cookie.contains("COOKIE_LOGIN_USER=")) isLogged = true;
+        else if ("迅雷云盘".equals(targetDrive) && cookie.contains("userid=")) isLogged = true;
+        else if ("123云盘".equals(targetDrive) && cookie.contains("token")) isLogged = true;
+        else if ("115网盘".equals(targetDrive) && cookie.contains("UID=")) isLogged = true;
+
+        if (isLogged) {
+            getSharedPreferences("DriveAuth", MODE_PRIVATE)
+                    .edit()
+                    .putString(targetDrive + "_COOKIE", cookie)
+                    .apply();
+            Toast.makeText(this, "✅ " + targetDrive + " 授权成功！已开启极速与大文件特权", Toast.LENGTH_LONG).show();
+            finish();
+        }
     }
 }
