@@ -12,12 +12,15 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Environment;
 import android.os.IBinder;
+import android.text.TextUtils;
 import android.util.Log;
 
 import com.arialyy.aria.core.Aria;
 import com.arialyy.aria.core.task.DownloadTask;
 
+import org.json.JSONObject;
 import java.io.File;
+import java.util.Iterator;
 
 public class DownloadService extends Service {
     public static final String ACTION_START = "com.mmm.pan.download.START";
@@ -40,11 +43,10 @@ public class DownloadService extends Service {
     public void onCreate() {
         super.onCreate();
         ensureChannel();
-        // 注册Aria
         Aria.download(this).register();
-        // 配置Aria并发为最高（类似于萌娘助手的处理）
+        // 配置Aria并发为最高
         Aria.get(this).getDownloadConfig().setMaxTaskNum(6);
-        Aria.get(this).getDownloadConfig().setThreadNum(16); // 16 线程并发分块下载
+        Aria.get(this).getDownloadConfig().setThreadNum(16);
     }
 
     @Override
@@ -70,15 +72,29 @@ public class DownloadService extends Service {
         
         startForeground(NOTIFY_BASE, buildNotification(task, "准备极速下载", 0, 0, true));
 
-        // 启动 Aria 极速下载引擎
-        long taskId = Aria.download(this)
+        // 启动 Aria 极速下载引擎，并注入授权头（如 Cookie）
+        com.arialyy.aria.core.download.DownloadTarget ariaTarget = Aria.download(this)
                 .load(task.url)
                 .setFilePath(task.path)
-                .ignoreFilePathOccupy()
-                .create();
-                
-        // 把 Aria 的 taskId 保存到我们的对象中
-        task.error = String.valueOf(taskId); // 借用 error 字段存储 Aria Task ID
+                .ignoreFilePathOccupy();
+
+        // 注入包含全局 Cookie 在内的身份鉴权请求头（破除下载限速与验证）
+        if (!TextUtils.isEmpty(task.headersJson)) {
+            try {
+                JSONObject headersObj = new JSONObject(task.headersJson);
+                Iterator<String> keys = headersObj.keys();
+                while (keys.hasNext()) {
+                    String key = keys.next();
+                    String value = headersObj.getString(key);
+                    ariaTarget.addHeader(key, value);
+                }
+            } catch (Exception e) {
+                Log.e("MMM", "解析下载请求头失败: " + e.getMessage());
+            }
+        }
+
+        long taskId = ariaTarget.create();
+        task.error = String.valueOf(taskId);
         DownloadRepository.update(this, task);
     }
 
@@ -97,8 +113,6 @@ public class DownloadService extends Service {
         }
     }
 
-    // --- Aria Event Callbacks ---
-    
     @com.arialyy.annotations.Download.onTaskRunning
     protected void running(DownloadTask task) {
         com.mmm.pan.DownloadTask localTask = findLocalTaskByAriaId(task.getTaskName(), task.getKey());
@@ -135,7 +149,6 @@ public class DownloadService extends Service {
     }
 
     private com.mmm.pan.DownloadTask findLocalTaskByAriaId(String path, String url) {
-        // 由于需要双向映射，这里简单扫描数据库。商业级应用可在此做更完善的哈希映射
         for (com.mmm.pan.DownloadTask t : DownloadRepository.load(this)) {
             if (t.url != null && t.url.equals(url)) return t;
         }
@@ -147,8 +160,6 @@ public class DownloadService extends Service {
         Aria.download(this).unRegister();
         super.onDestroy();
     }
-
-    // --- IO Helpers ---
 
     private File resolveOutputFile(com.mmm.pan.DownloadTask task) {
         File dir;
