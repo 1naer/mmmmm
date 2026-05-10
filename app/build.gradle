@@ -10,8 +10,8 @@ android {
         applicationId 'com.mmm.pan'
         minSdk 23
         targetSdk 35
-        versionCode 2
-        versionName '0.2.0-Aria'
+        versionCode 3
+        versionName '0.3.0-Extreme'
     }
 
     compileOptions {
@@ -22,10 +22,4 @@ android {
     lint {
         abortOnError false
     }
-}
-
-dependencies {
-    // 引入 Aria 核心，提供多线程并发、断点续传、堪比 Gopeed/Aria2 的下载能力
-    implementation 'com.arialyy.aria:core:3.8.16'
-    annotationProcessor 'com.arialyy.aria:compiler:3.8.16'
 }
