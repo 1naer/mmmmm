@@ -25,6 +25,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+
 import java.io.InputStream;
 import java.util.UUID;
 
@@ -56,7 +57,7 @@ public class MainActivity extends Activity {
         title.getPaint().setFakeBoldText(true);
 
         TextView sub = new TextView(this);
-        sub.setText("网盘无感解析与极速下载");
+        sub.setText("全网盘无感解析与极速下载");
         sub.setTextSize(15);
         sub.setTextColor(Color.parseColor("#7F8C8D"));
         sub.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -89,28 +90,36 @@ public class MainActivity extends Activity {
         
         Button downloadsBtn = createSecondaryButton("下载管理中心");
         LinearLayout.LayoutParams btnParams2 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 140);
-        btnParams2.setMargins(0, 0, 0, 30);
-
-        // -- 新增网盘授权按钮行 --
-        LinearLayout authRow = new LinearLayout(this);
-        authRow.setOrientation(LinearLayout.HORIZONTAL);
-        Button authQuarkBtn = createSecondaryButton("登录夸克");
-        Button authBaiduBtn = createSecondaryButton("登录百度");
-        
-        LinearLayout.LayoutParams authBtnParams1 = new LinearLayout.LayoutParams(0, 120, 1);
-        authBtnParams1.setMargins(0, 0, 10, 0);
-        LinearLayout.LayoutParams authBtnParams2 = new LinearLayout.LayoutParams(0, 120, 1);
-        authBtnParams2.setMargins(10, 0, 0, 0);
-
-        authRow.addView(authQuarkBtn, authBtnParams1);
-        authRow.addView(authBaiduBtn, authBtnParams2);
+        btnParams2.setMargins(0, 0, 0, 40);
 
         root.addView(title);
         root.addView(sub, subParams);
         root.addView(card, cardParams);
         root.addView(openBtn, btnParams);
         root.addView(downloadsBtn, btnParams2);
-        root.addView(authRow, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // 动态生成所有网盘的登录授权按钮
+        String[] drives = {"百度网盘", "夸克网盘", "阿里云盘", "天翼云盘", "迅雷云盘", "115网盘", "123云盘"};
+        LinearLayout currentAuthRow = null;
+        for (int i = 0; i < drives.length; i++) {
+            if (i % 2 == 0) {
+                currentAuthRow = new LinearLayout(this);
+                currentAuthRow.setOrientation(LinearLayout.HORIZONTAL);
+                root.addView(currentAuthRow, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            }
+            
+            Button authBtn = createAuthButton("授权 " + drives[i]);
+            final String dType = drives[i];
+            authBtn.setOnClickListener(v -> {
+                Intent intent = new Intent(this, LoginActivity.class);
+                intent.putExtra("DRIVE_TYPE", dType);
+                startActivity(intent);
+            });
+            
+            LinearLayout.LayoutParams authParams = new LinearLayout.LayoutParams(0, 110, 1);
+            authParams.setMargins(i % 2 == 0 ? 0 : 10, 0, i % 2 == 0 ? 10 : 0, 20);
+            currentAuthRow.addView(authBtn, authParams);
+        }
 
         setContentView(scrollView);
 
@@ -132,19 +141,6 @@ public class MainActivity extends Activity {
         });
 
         downloadsBtn.setOnClickListener(v -> startActivity(new Intent(this, DownloadActivity.class)));
-        
-        authQuarkBtn.setOnClickListener(v -> {
-            Intent intent = new Intent(this, LoginActivity.class);
-            intent.putExtra("DRIVE_TYPE", "QUARK");
-            startActivity(intent);
-        });
-
-        authBaiduBtn.setOnClickListener(v -> {
-            Intent intent = new Intent(this, LoginActivity.class);
-            intent.putExtra("DRIVE_TYPE", "BAIDU");
-            startActivity(intent);
-        });
-
         setupHeadlessWebView();
     }
 
@@ -190,13 +186,8 @@ public class MainActivity extends Activity {
         headlessWebView.clearHistory();
         headlessWebView.clearCache(true);
 
-        // 核心：将保存的凭证 Cookie 注入 WebView
-        String savedCookie = "";
-        if ("夸克网盘".equals(provider)) {
-            savedCookie = getSharedPreferences("DriveAuth", MODE_PRIVATE).getString("QUARK_COOKIE", "");
-        } else if ("百度网盘".equals(provider)) {
-            savedCookie = getSharedPreferences("DriveAuth", MODE_PRIVATE).getString("BAIDU_COOKIE", "");
-        }
+        // 全网盘全局 Cookie 注入
+        String savedCookie = getSharedPreferences("DriveAuth", MODE_PRIVATE).getString(provider + "_COOKIE", "");
 
         if (!TextUtils.isEmpty(savedCookie)) {
             CookieManager.getInstance().setCookie(url, savedCookie);
@@ -208,7 +199,7 @@ public class MainActivity extends Activity {
         mainHandler.postDelayed(() -> {
             if (loadingDialog != null && loadingDialog.isShowing()) {
                 hideLoadingDialog();
-                Toast.makeText(this, "解析超时，可能是未登录导致的限制，请先登录网盘账号", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "解析超时，可能是未登录导致的限制，请先在下方点击【授权】登录对应网盘", Toast.LENGTH_LONG).show();
             }
         }, 15000);
     }
@@ -218,21 +209,21 @@ public class MainActivity extends Activity {
         
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("🎉 成功提取文件");
-        builder.setMessage("文件名: " + filename + "\n\n是否立即创建下载任务？");
-        builder.setPositiveButton("立即下载", (dialog, which) -> {
+        builder.setMessage("文件名: " + filename + "\n\n是否立即创建极速下载任务？");
+        builder.setPositiveButton("极速下载", (dialog, which) -> {
             DownloadTask task = new DownloadTask();
             task.id = UUID.randomUUID().toString();
             task.url = directUrl;
             task.name = filename;
             task.status = DownloadTask.STATUS_PAUSED;
             
-            // 同样将全局 Cookie 保存到下载头，供 Aria 引擎使用，突破限速
+            // 写入带有Cookie认证的鉴权头给多线程引擎
             String headers = String.format("{\"Cookie\":\"%s\"}", CookieManager.getInstance().getCookie(directUrl));
             task.headersJson = headers;
 
             DownloadRepository.update(this, task);
             DownloadService.startTask(this, task.id);
-            Toast.makeText(this, "已加入极速下载队列", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "已加入多线程极速下载队列", Toast.LENGTH_SHORT).show();
         });
         builder.setNegativeButton("取消", null);
         builder.show();
@@ -294,6 +285,23 @@ public class MainActivity extends Activity {
         contentDrawable.setStroke(3, Color.parseColor("#3498DB"));
 
         RippleDrawable rippleDrawable = new RippleDrawable(ColorStateList.valueOf(Color.parseColor("#D4E6F1")), contentDrawable, null);
+        button.setBackground(rippleDrawable);
+        return button;
+    }
+
+    private Button createAuthButton(String text) {
+        Button button = new Button(this);
+        button.setText(text);
+        button.setTextColor(Color.parseColor("#8E44AD"));
+        button.setTextSize(14);
+        button.setAllCaps(false);
+        button.setStateListAnimator(null);
+
+        GradientDrawable contentDrawable = new GradientDrawable();
+        contentDrawable.setColor(Color.parseColor("#F4ECF7"));
+        contentDrawable.setCornerRadius(18f);
+
+        RippleDrawable rippleDrawable = new RippleDrawable(ColorStateList.valueOf(Color.parseColor("#D7BDE2")), contentDrawable, null);
         button.setBackground(rippleDrawable);
         return button;
     }
