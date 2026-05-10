@@ -50,7 +50,7 @@ public class RangeDownloader {
         AtomicLong downloadedBytes = new AtomicLong(0);
         long blockSize = totalSize / THREAD_COUNT;
 
-        ExecutorService executor = Executors.newFixedFixedThreadPool(THREAD_COUNT);
+        ExecutorService executor = Executors.newFixedThreadPool(THREAD_COUNT);
         DownloadExceptionHolder errorHolder = new DownloadExceptionHolder();
 
         for (int i = 0; i < THREAD_COUNT; i++) {
