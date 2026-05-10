@@ -84,8 +84,47 @@ public class ShareLinkParser {
             callback.onFail("尚未授权！请先在首页点击【授权 夸克网盘】登录。");
             return;
         }
+
+        // 1. 模拟竞品请求参数 (移植自 ceshi.js)
+        String userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch";
+        String apiUrl = "https://drive.quark.cn/1/clouddrive/file/download?pr=ucpro&fr=pc";
         
-        callback.onFail("夸克原生 API 隧道已接通。由于跨库移植脚本的依赖问题，直链分发模块需在下一个构建中激活。");
+        // 实际场景需要先请求 share 接口获取 fid，为了演示底层通道的打通，这里先尝试构造基础请求框架
+        URL url = new URL(apiUrl);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("User-Agent", userAgent);
+        conn.setRequestProperty("Cookie", cookie);
+        conn.setRequestProperty("Content-Type", "application/json;charset=utf-8");
+        conn.setDoOutput(true);
+
+        // 占位 JSON，实际需要先提取分享链接里的 fid
+        String jsonBody = "{\"fids\":[]}";
+        try (OutputStream os = conn.getOutputStream()) {
+            byte[] input = jsonBody.getBytes("utf-8");
+            os.write(input, 0, input.length);
+        }
+
+        int responseCode = conn.getResponseCode();
+        if (responseCode == 200) {
+            // 竞品逻辑：读取响应 JSON 中的 download_url
+            BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream(), "utf-8"));
+            StringBuilder response = new StringBuilder();
+            String line;
+            while ((line = in.readLine()) != null) {
+                response.append(line.trim());
+            }
+            in.close();
+            
+            String resStr = response.toString();
+            if (resStr.contains("\"code\":31001")) {
+                callback.onFail("Cookie已过期或无效，请重新登录夸克网盘！");
+            } else {
+                callback.onFail("原生API直调成功！响应内容已捕获，接下来需补齐fid提取逻辑：" + resStr.substring(0, Math.min(resStr.length(), 100)));
+            }
+        } else {
+            callback.onFail("网络请求失败，状态码：" + responseCode);
+        }
     }
 
     public interface Callback {
