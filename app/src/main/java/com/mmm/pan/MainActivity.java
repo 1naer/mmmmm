@@ -50,6 +50,10 @@ public class MainActivity extends Activity {
         btnAli.setText("阿里云盘");
         btnAli.setOnClickListener(v -> { currentProvider = "阿里云盘"; loadDrive("https://www.alipan.com/"); });
 
+        Button btnBaidu = new Button(this);
+        btnBaidu.setText("百度网盘");
+        btnBaidu.setOnClickListener(v -> { currentProvider = "百度网盘"; loadDrive("https://pan.baidu.com/"); });
+
         Button btnDownloads = new Button(this);
         btnDownloads.setText("下载中心");
         btnDownloads.setTextColor(Color.parseColor("#3498DB"));
@@ -57,6 +61,7 @@ public class MainActivity extends Activity {
 
         navBar.addView(btnQuark, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         navBar.addView(btnAli, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        navBar.addView(btnBaidu, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         navBar.addView(btnDownloads, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         webView = new WebView(this);
@@ -106,7 +111,6 @@ public class MainActivity extends Activity {
     }
 
     private void injectLinkSwiftScript(WebView view, String url) {
-        // 核心突破：注入的不仅仅是UI按钮，还有一套寻找页面选中元素的黑魔法（基于竞品 ceshi.js 逻辑缩影）
         String js = "javascript:(function() {" +
             "if(document.getElementById('operit-btn-wrap')) return;" +
             "var wrap = document.createElement('div');" +
@@ -124,7 +128,7 @@ public class MainActivity extends Activity {
             "           if (fileNodes.length === 0) {" +
             "               try {" +
             "                   var reactNode = document.querySelector('.file-list');" +
-            "                   var propsKey = Object.keys(reactNode).find(k => k.startsWith('__reactProps'));" +
+            "                   var propsKey = Object.keys(reactNode).find(function(k){return k.startsWith('__reactProps');});" +
             "                   var props = reactNode[propsKey];" +
             "                   fids = props.children.props.selectedRowKeys || [];" +
             "               } catch(e) {}" +
