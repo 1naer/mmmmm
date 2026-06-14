@@ -1,6 +1,7 @@
 package com.mmm.pan;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Color;
 import android.os.Build;
@@ -15,15 +16,18 @@ import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.Toast;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 
 public class MainActivity extends Activity {
     private WebView webView;
+    private String currentProvider = "夸克网盘";
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         
-        // 核心一：强制应用级别硬件加速 (解决底层花屏撕裂)
         getWindow().setFlags(
             android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
@@ -33,7 +37,6 @@ public class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.WHITE);
 
-        // 导航栏 (对齐萌娘助手)
         LinearLayout navBar = new LinearLayout(this);
         navBar.setOrientation(LinearLayout.HORIZONTAL);
         navBar.setBackgroundColor(Color.parseColor("#F5F7FA"));
@@ -41,11 +44,11 @@ public class MainActivity extends Activity {
 
         Button btnQuark = new Button(this);
         btnQuark.setText("夸克网盘");
-        btnQuark.setOnClickListener(v -> loadDrive("https://pan.quark.cn/"));
+        btnQuark.setOnClickListener(v -> { currentProvider = "夸克网盘"; loadDrive("https://pan.quark.cn/"); });
 
         Button btnAli = new Button(this);
         btnAli.setText("阿里云盘");
-        btnAli.setOnClickListener(v -> loadDrive("https://www.alipan.com/"));
+        btnAli.setOnClickListener(v -> { currentProvider = "阿里云盘"; loadDrive("https://www.alipan.com/"); });
 
         Button btnDownloads = new Button(this);
         btnDownloads.setText("下载中心");
@@ -56,17 +59,12 @@ public class MainActivity extends Activity {
         navBar.addView(btnAli, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         navBar.addView(btnDownloads, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // 核心二：极限配置的 WebView 引擎
         webView = new WebView(this);
-        // 针对不同系统版本，动态切换层类型以防止闪烁和花屏
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            // Android 8.0 以上，对于复杂的网页，有时关闭硬件加速层反而能解决花屏 (如果全局加速导致了冲突)
-            // 但考虑到夸克有大量动画，先尝试硬件层
             webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         } else {
             webView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
         }
-        
         webView.setBackgroundColor(Color.TRANSPARENT);
 
         WebSettings settings = webView.getSettings();
@@ -76,10 +74,8 @@ public class MainActivity extends Activity {
         settings.setAppCacheEnabled(true);
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(true);
-        // 伪装PC客户端，绕过网盘的风控
         settings.setUserAgentString("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch");
         
-        // 允许跨域和混合内容，避免样式加载失败
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         }
@@ -87,14 +83,12 @@ public class MainActivity extends Activity {
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
 
-        // 注册JS桥接
         webView.addJavascriptInterface(new WebAppInterface(), "OperitNative");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                // 核心三：注入竞品灵魂逻辑
                 injectLinkSwiftScript(view, url);
             }
         });
@@ -112,7 +106,7 @@ public class MainActivity extends Activity {
     }
 
     private void injectLinkSwiftScript(WebView view, String url) {
-        // 从萌娘助手 ceshi.js 移植的注入逻辑
+        // 核心突破：注入的不仅仅是UI按钮，还有一套寻找页面选中元素的黑魔法（基于竞品 ceshi.js 逻辑缩影）
         String js = "javascript:(function() {" +
             "if(document.getElementById('operit-btn-wrap')) return;" +
             "var wrap = document.createElement('div');" +
@@ -124,8 +118,20 @@ public class MainActivity extends Activity {
             "btn.style.cssText = 'background:#0d53ff; color:white; padding:12px 24px; border-radius:24px; font-size:16px; font-weight:bold; box-shadow: 0 4px 12px rgba(13,83,255,0.4); border:none;';" +
             "btn.onclick = function() {" +
             "   try {" +
-            "       window.OperitNative.onExtractBtnClick();" +
-            "   } catch(e) { alert(e); }" +
+            "       var fids = [];" +
+            "       if (location.host.includes('quark.cn')) {" +
+            "           var fileNodes = document.querySelectorAll('.row.active');" +
+            "           if (fileNodes.length === 0) {" +
+            "               try {" +
+            "                   var reactNode = document.querySelector('.file-list');" +
+            "                   var propsKey = Object.keys(reactNode).find(k => k.startsWith('__reactProps'));" +
+            "                   var props = reactNode[propsKey];" +
+            "                   fids = props.children.props.selectedRowKeys || [];" +
+            "               } catch(e) {}" +
+            "           }" +
+            "       }" +
+            "       window.OperitNative.onExtract(fids.join(','));" +
+            "   } catch(e) { window.OperitNative.onExtract(''); }" +
             "};" +
             
             "wrap.appendChild(btn);" +
@@ -143,14 +149,56 @@ public class MainActivity extends Activity {
         }
     }
 
-    // 与注入的JS通信的接口
     private class WebAppInterface {
         @android.webkit.JavascriptInterface
-        public void onExtractBtnClick() {
+        public void onExtract(String fidsString) {
             runOnUiThread(() -> {
-                Toast.makeText(MainActivity.this, "已触发底层原生解析！", Toast.LENGTH_SHORT).show();
-                // 下一步将在这里调用 ShareLinkParser
+                if (fidsString == null || fidsString.trim().isEmpty()) {
+                    Toast.makeText(MainActivity.this, "未能抓取到选中的文件，请先在页面上勾选！", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                
+                Toast.makeText(MainActivity.this, "已抓取文件ID，正在后台提取直链...", Toast.LENGTH_SHORT).show();
+                
+                String[] split = fidsString.split(",");
+                List<String> fids = new ArrayList<>();
+                for (String f : split) fids.add(f.trim());
+
+                String currentUrl = webView.getUrl();
+                ShareLinkParser.fetchDirectLinkByFidsAsync(MainActivity.this, currentProvider, currentUrl, fids, new ShareLinkParser.Callback() {
+                    @Override
+                    public void onSuccess(String directUrl, String filename) {
+                        runOnUiThread(() -> onParsedSuccessfully(directUrl, filename));
+                    }
+
+                    @Override
+                    public void onFail(String reason) {
+                        runOnUiThread(() -> Toast.makeText(MainActivity.this, reason, Toast.LENGTH_LONG).show());
+                    }
+                });
             });
         }
+    }
+
+    private void onParsedSuccessfully(String directUrl, String filename) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("🎉 成功提取文件");
+        builder.setMessage("文件名: " + filename + "\n\n是否立即移交底层下载引擎？");
+        builder.setPositiveButton("极速下载", (dialog, which) -> {
+            DownloadTask task = new DownloadTask();
+            task.id = UUID.randomUUID().toString();
+            task.url = directUrl;
+            task.name = filename;
+            task.status = DownloadTask.STATUS_PAUSED;
+            
+            String headers = String.format("{\"Cookie\":\"%s\"}", CookieManager.getInstance().getCookie(webView.getUrl()));
+            task.headersJson = headers;
+
+            DownloadRepository.update(this, task);
+            DownloadService.startTask(this, task.id);
+            Toast.makeText(this, "已加入多线程极速下载队列", Toast.LENGTH_SHORT).show();
+        });
+        builder.setNegativeButton("取消", null);
+        builder.show();
     }
 }
