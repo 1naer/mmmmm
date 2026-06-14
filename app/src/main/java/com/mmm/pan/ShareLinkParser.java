@@ -45,7 +45,6 @@ public class ShareLinkParser {
         void onFail(String reason);
     }
 
-    // 核心接口：接收从前端 WebView 传来的 fid 列表进行原生解析
     public static void fetchDirectLinkByFidsAsync(Context context, String provider, String currentUrl, List<String> fids, Callback callback) {
         new Thread(() -> {
             try {
@@ -70,7 +69,6 @@ public class ShareLinkParser {
         }).start();
     }
 
-    // 移植自 gopeed-extension-quark & ceshi.js
     private static void doQuarkApiParse(String cookie, List<String> fids, Callback callback) throws Exception {
         if (fids == null || fids.isEmpty()) {
             callback.onFail("请在页面上勾选需要下载的文件！");
@@ -128,12 +126,84 @@ public class ShareLinkParser {
         }
     }
 
-    // 移植自 ceshi.js (LinkSwift)
+    private static void doBaiduApiParse(String cookie, List<String> fids, Callback callback) throws Exception {
+        if (fids == null || fids.isEmpty()) {
+            callback.onFail("请在页面上勾选需要下载的文件！");
+            return;
+        }
+
+        // 获取BDUSS用于签名验证
+        String bduss = extractCookie(cookie, "BDUSS");
+        if (TextUtils.isEmpty(bduss)) {
+            callback.onFail("未找到百度的核心凭证BDUSS，请重新登录！");
+            return;
+        }
+
+        // 模拟PC客户端请求
+        String userAgent = "netdisk;7.0.3.2;PC;PC-Windows;10.0.19042;WindowsBaiduYunGuanJia";
+        JSONArray fidList = new JSONArray(fids);
+        
+        // 百度获取直链API
+        String apiUrl = "https://pan.baidu.com/api/download?clienttype=1&app_id=250528&web=1";
+        String postData = "fidlist=" + java.net.URLEncoder.encode(fidList.toString(), "utf-8") + "&type=dlink";
+
+        URL url = new URL(apiUrl);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("User-Agent", userAgent);
+        conn.setRequestProperty("Cookie", cookie);
+        conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+        conn.setDoOutput(true);
+
+        try (OutputStream os = conn.getOutputStream()) {
+            byte[] input = postData.getBytes("utf-8");
+            os.write(input, 0, input.length);
+        }
+
+        int responseCode = conn.getResponseCode();
+        if (responseCode == 200) {
+            BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream(), "utf-8"));
+            StringBuilder response = new StringBuilder();
+            String line;
+            while ((line = in.readLine()) != null) {
+                response.append(line.trim());
+            }
+            in.close();
+
+            JSONObject respObj = new JSONObject(response.toString());
+            if (respObj.optInt("errno", -1) == 0) {
+                JSONArray dlinkList = respObj.optJSONArray("dlink");
+                if (dlinkList != null && dlinkList.length() > 0) {
+                    JSONObject fileObj = dlinkList.getJSONObject(0);
+                    String directUrl = fileObj.optString("dlink");
+                    // 真实的Gopeed等扩展需要配合特定User-Agent和Cookie去下载dlink
+                    if (!TextUtils.isEmpty(directUrl)) {
+                        callback.onSuccess(directUrl, "baidu_download_file");
+                        return;
+                    }
+                }
+                callback.onFail("百度API返回成功，但缺少dlink信息。");
+            } else {
+                callback.onFail("百度风控拦截，错误码：" + respObj.optInt("errno", -1) + " (提示: 百度对黑号限速极严，可能需要SVIP账号)");
+            }
+        } else {
+            callback.onFail("百度接口请求失败：" + responseCode);
+        }
+    }
+
     private static void doAliyunApiParse(String cookie, List<String> fids, Callback callback) throws Exception {
         callback.onFail("阿里云盘的底层API需先从 localStorage 获取 Token，已排入下发计划。");
     }
 
-    private static void doBaiduApiParse(String cookie, List<String> fids, Callback callback) throws Exception {
-        callback.onFail("百度网盘 API 构建中，将在下一个补丁激活。");
+    private static String extractCookie(String cookieStr, String key) {
+        if (TextUtils.isEmpty(cookieStr)) return "";
+        String[] pairs = cookieStr.split(";");
+        for (String pair : pairs) {
+            String[] kv = pair.trim().split("=", 2);
+            if (kv.length == 2 && kv[0].equals(key)) {
+                return kv[1];
+            }
+        }
+        return "";
     }
 }
