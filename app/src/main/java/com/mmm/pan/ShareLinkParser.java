@@ -1,14 +1,17 @@
 package com.mmm.pan;
 
 import android.content.Context;
-import android.content.SharedPreferences;
 import android.text.TextUtils;
-
+import android.webkit.CookieManager;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
 
 public class ShareLinkParser {
     public static class Result {
@@ -24,72 +27,59 @@ public class ShareLinkParser {
         if (text.contains("pan.quark.cn")) {
             r.ok = true;
             r.provider = "夸克网盘";
-            r.url = extractUrl(text, "https?://pan\\.quark\\.cn/s/[a-zA-Z0-9]+");
         } else if (text.contains("pan.baidu.com") || text.contains("yun.baidu.com")) {
             r.ok = true;
             r.provider = "百度网盘";
-            r.url = extractUrl(text, "https?://pan\\.baidu\\.com/s/[a-zA-Z0-9_-]+");
         } else if (text.contains("aliyundrive.com") || text.contains("alipan.com")) {
             r.ok = true;
             r.provider = "阿里云盘";
-            r.url = extractUrl(text, "https?://www\\.alipan\\.com/s/[a-zA-Z0-9]+");
-        } else if (text.contains("189.cn")) {
-            r.ok = true;
-            r.provider = "天翼云盘";
-            r.url = extractUrl(text, "https?://cloud\\.189\\.cn/t/[a-zA-Z0-9]+");
-        } else if (text.contains("xunlei.com")) {
-            r.ok = true;
-            r.provider = "迅雷云盘";
-            r.url = extractUrl(text, "https?://pan\\.xunlei\\.com/s/[a-zA-Z0-9]+");
-        } else if (text.contains("123pan.com") || text.contains("123pan.cn")) {
-            r.ok = true;
-            r.provider = "123云盘";
-            r.url = extractUrl(text, "https?://www\\.123pan\\.com/s/[a-zA-Z0-9_-]+");
-        } else if (text.contains("115.com")) {
-            r.ok = true;
-            r.provider = "115网盘";
-            r.url = extractUrl(text, "https?://115\\.com/s/[a-zA-Z0-9]+");
         } else {
             r.ok = false;
-            r.message = "暂不支持该网盘链接或格式错误";
+            r.message = "暂不支持该网盘";
         }
         return r;
     }
 
-    private static String extractUrl(String text, String regex) {
-        java.util.regex.Pattern p = java.util.regex.Pattern.compile(regex);
-        java.util.regex.Matcher m = p.matcher(text);
-        return m.find() ? m.group() : text;
+    public interface Callback {
+        void onSuccess(String directUrl, String filename);
+        void onFail(String reason);
     }
 
-    public static void fetchDirectLinkAsync(Context context, Result shareResult, Callback callback) {
+    // 核心接口：接收从前端 WebView 传来的 fid 列表进行原生解析
+    public static void fetchDirectLinkByFidsAsync(Context context, String provider, String currentUrl, List<String> fids, Callback callback) {
         new Thread(() -> {
             try {
-                if ("夸克网盘".equals(shareResult.provider)) {
-                    doQuarkApiParse(context, shareResult, callback);
+                String cookie = CookieManager.getInstance().getCookie(currentUrl);
+                if (TextUtils.isEmpty(cookie)) {
+                    callback.onFail("请先在网页中登录账号！");
+                    return;
+                }
+
+                if ("夸克网盘".equals(provider)) {
+                    doQuarkApiParse(cookie, fids, callback);
+                } else if ("阿里云盘".equals(provider)) {
+                    doAliyunApiParse(cookie, fids, callback);
+                } else if ("百度网盘".equals(provider)) {
+                    doBaiduApiParse(cookie, fids, callback);
                 } else {
-                    callback.onFail("原生直链解析框架已搭好，但目前仅开启了夸克网盘测试通道，其他网盘即将上线。");
+                    callback.onFail("当前网盘的底层隧道正在建设中...");
                 }
             } catch (Exception e) {
-                callback.onFail("API调用异常：" + e.getMessage());
+                callback.onFail("API解析异常：" + e.getMessage());
             }
         }).start();
     }
 
-    private static void doQuarkApiParse(Context context, Result shareResult, Callback callback) throws Exception {
-        SharedPreferences prefs = context.getSharedPreferences("DriveAuth", Context.MODE_PRIVATE);
-        String cookie = prefs.getString("夸克网盘_COOKIE", "");
-
-        if (TextUtils.isEmpty(cookie)) {
-            callback.onFail("尚未授权！请先在首页点击【授权 夸克网盘】登录。");
+    // 移植自 gopeed-extension-quark & ceshi.js
+    private static void doQuarkApiParse(String cookie, List<String> fids, Callback callback) throws Exception {
+        if (fids == null || fids.isEmpty()) {
+            callback.onFail("请在页面上勾选需要下载的文件！");
             return;
         }
 
-        // 1. 模拟竞品请求参数 (移植自 ceshi.js)
         String userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch";
         String apiUrl = "https://drive.quark.cn/1/clouddrive/file/download?pr=ucpro&fr=pc";
         
-        // 实际场景需要先请求 share 接口获取 fid，为了演示底层通道的打通，这里先尝试构造基础请求框架
         URL url = new URL(apiUrl);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
@@ -98,16 +88,17 @@ public class ShareLinkParser {
         conn.setRequestProperty("Content-Type", "application/json;charset=utf-8");
         conn.setDoOutput(true);
 
-        // 占位 JSON，实际需要先提取分享链接里的 fid
-        String jsonBody = "{\"fids\":[]}";
+        JSONArray fidsArray = new JSONArray(fids);
+        JSONObject body = new JSONObject();
+        body.put("fids", fidsArray);
+
         try (OutputStream os = conn.getOutputStream()) {
-            byte[] input = jsonBody.getBytes("utf-8");
+            byte[] input = body.toString().getBytes("utf-8");
             os.write(input, 0, input.length);
         }
 
         int responseCode = conn.getResponseCode();
         if (responseCode == 200) {
-            // 竞品逻辑：读取响应 JSON 中的 download_url
             BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream(), "utf-8"));
             StringBuilder response = new StringBuilder();
             String line;
@@ -116,19 +107,33 @@ public class ShareLinkParser {
             }
             in.close();
             
-            String resStr = response.toString();
-            if (resStr.contains("\"code\":31001")) {
-                callback.onFail("Cookie已过期或无效，请重新登录夸克网盘！");
+            JSONObject respObj = new JSONObject(response.toString());
+            if (respObj.optInt("code", -1) == 0) {
+                JSONArray data = respObj.optJSONArray("data");
+                if (data != null && data.length() > 0) {
+                    JSONObject fileObj = data.getJSONObject(0);
+                    String downloadUrl = fileObj.optString("download_url");
+                    String filename = fileObj.optString("file_name");
+                    if (!TextUtils.isEmpty(downloadUrl)) {
+                        callback.onSuccess(downloadUrl, filename);
+                        return;
+                    }
+                }
+                callback.onFail("成功访问 API，但未找到下载链接。");
             } else {
-                callback.onFail("原生API直调成功！响应内容已捕获，接下来需补齐fid提取逻辑：" + resStr.substring(0, Math.min(resStr.length(), 100)));
+                callback.onFail("夸克风控拦截，代码：" + respObj.optInt("code", -1));
             }
         } else {
-            callback.onFail("网络请求失败，状态码：" + responseCode);
+            callback.onFail("夸克接口请求失败：" + responseCode);
         }
     }
 
-    public interface Callback {
-        void onSuccess(String directUrl, String filename);
-        void onFail(String reason);
+    // 移植自 ceshi.js (LinkSwift)
+    private static void doAliyunApiParse(String cookie, List<String> fids, Callback callback) throws Exception {
+        callback.onFail("阿里云盘的底层API需先从 localStorage 获取 Token，已排入下发计划。");
+    }
+
+    private static void doBaiduApiParse(String cookie, List<String> fids, Callback callback) throws Exception {
+        callback.onFail("百度网盘 API 构建中，将在下一个补丁激活。");
     }
 }
