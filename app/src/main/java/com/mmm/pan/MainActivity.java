@@ -123,6 +123,7 @@ public class MainActivity extends Activity {
             "btn.onclick = function() {" +
             "   try {" +
             "       var fids = [];" +
+            "       var extraData = '';" + // 用于传递 token|drive_id
             "       if (location.host.includes('quark.cn')) {" +
             "           var fileNodes = document.querySelectorAll('.row.active');" +
             "           if (fileNodes.length === 0) {" +
@@ -148,9 +149,22 @@ public class MainActivity extends Activity {
             "                   for(var j=0; j<selectedList.length; j++) fids.push(selectedList[j].fs_id);" +
             "               }" +
             "           } catch(e) {}" +
+            "       } else if (location.host.includes('alipan.com') || location.host.includes('aliyundrive.com')) {" +
+            "           try {" +
+            "               var tokenObj = JSON.parse(localStorage.getItem('token') || '{}');" +
+            "               var token = tokenObj.access_token;" +
+            "               var driveId = tokenObj.default_drive_id;" +
+            "               if (token && driveId) extraData = token + '|' + driveId;" +
+            "               var items = document.querySelectorAll('[data-row-key]');" +
+            "               for(var i=0; i<items.length; i++) {" +
+            "                   if(items[i].querySelector('input[type=\"checkbox\"]:checked')) {" +
+            "                       fids.push(items[i].getAttribute('data-row-key'));" +
+            "                   }" +
+            "               }" +
+            "           } catch(e) {}" +
             "       }" +
-            "       window.OperitNative.onExtract(fids.join(','));" +
-            "   } catch(e) { window.OperitNative.onExtract(''); }" +
+            "       window.OperitNative.onExtract(fids.join(','), extraData);" +
+            "   } catch(e) { window.OperitNative.onExtract('', ''); }" +
             "};" +
             
             "wrap.appendChild(btn);" +
@@ -170,7 +184,7 @@ public class MainActivity extends Activity {
 
     private class WebAppInterface {
         @android.webkit.JavascriptInterface
-        public void onExtract(String fidsString) {
+        public void onExtract(String fidsString, String extraData) {
             runOnUiThread(() -> {
                 if (fidsString == null || fidsString.trim().isEmpty()) {
                     Toast.makeText(MainActivity.this, "未能抓取到选中的文件，请先在页面上勾选！", Toast.LENGTH_SHORT).show();
@@ -194,8 +208,14 @@ public class MainActivity extends Activity {
                     public void onFail(String reason) {
                         runOnUiThread(() -> Toast.makeText(MainActivity.this, reason, Toast.LENGTH_LONG).show());
                     }
-                });
+                }, extraData);
             });
+        }
+        
+        // 兼容旧版本注入脚本，防止旧页面崩溃
+        @android.webkit.JavascriptInterface
+        public void onExtract(String fidsString) {
+            onExtract(fidsString, "");
         }
     }
 
