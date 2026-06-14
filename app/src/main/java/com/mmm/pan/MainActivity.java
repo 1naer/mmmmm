@@ -79,7 +79,7 @@ public class MainActivity extends Activity {
         settings.setAppCacheEnabled(true);
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(true);
-        settings.setUserAgentString("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch");
+        settings.setUserAgentString("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36");
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
@@ -133,6 +133,21 @@ public class MainActivity extends Activity {
             "                   fids = props.children.props.selectedRowKeys || [];" +
             "               } catch(e) {}" +
             "           }" +
+            "       } else if (location.host.includes('baidu.com')) {" +
+            "           try {" +
+            "               var items = document.querySelectorAll('dd.J_ListTree');" +
+            "               for(var i=0; i<items.length; i++) {" +
+            "                   if(items[i].className.includes('chk-on') || items[i].querySelector('.chk-on')) {" +
+            "                       var fsId = items[i].getAttribute('data-id') || items[i].dataset.id;" +
+            "                       if(fsId) fids.push(fsId);" +
+            "                   }" +
+            "               }" +
+            "               if (fids.length === 0 && window.require) {" +
+            "                   var ctx = require('system-core:context/context.js').instanceForSystem;" +
+            "                   var selectedList = ctx.ui.list.getSelected();" +
+            "                   for(var j=0; j<selectedList.length; j++) fids.push(selectedList[j].fs_id);" +
+            "               }" +
+            "           } catch(e) {}" +
             "       }" +
             "       window.OperitNative.onExtract(fids.join(','));" +
             "   } catch(e) { window.OperitNative.onExtract(''); }" +
@@ -195,7 +210,12 @@ public class MainActivity extends Activity {
             task.name = filename;
             task.status = DownloadTask.STATUS_PAUSED;
             
-            String headers = String.format("{\"Cookie\":\"%s\"}", CookieManager.getInstance().getCookie(webView.getUrl()));
+            String userAgent = "netdisk;7.0.3.2;PC;PC-Windows;10.0.19042;WindowsBaiduYunGuanJia";
+            if (!currentProvider.contains("百度")) {
+                userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch";
+            }
+            String headers = String.format("{\"Cookie\":\"%s\", \"User-Agent\":\"%s\"}", 
+                CookieManager.getInstance().getCookie(webView.getUrl()), userAgent);
             task.headersJson = headers;
 
             DownloadRepository.update(this, task);
